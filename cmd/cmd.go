@@ -111,7 +111,7 @@ func Execute(ops Options) int {
 		defer wg.Done()
 		for e := range jobs {
 			// If we whitelist a specific extention skip any that don't have it
-			if ops.ExpectedExtension != "" && strings.HasSuffix(e.Name, ops.ExpectedExtension) {
+			if ops.ExpectedExtension != "" && !strings.HasSuffix(e.Name, ops.ExpectedExtension) {
 				logInfo.Printf("Worker %d: File name doesn't have expected extension: %s\n", id, e.Name)
 				continue
 			}
