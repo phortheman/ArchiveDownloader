@@ -49,8 +49,8 @@ func Execute(ops Options) int {
 	ops.SetDefaults()
 	var err error
 
-	logInfo := log.New(os.Stdout, "INFO: ", log.Ltime|log.Lshortfile)
-	logError := log.New(os.Stderr, "ERROR: ", log.Ltime|log.Lshortfile)
+	logInfo := log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
+	logError := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	// Create the destination absolute path
 	ops.Destination, err = filepath.Abs(ops.Destination)
