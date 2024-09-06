@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -9,17 +10,22 @@ import (
 
 // Parse the HTML page to populate the list of file names and urls
 // Callback function handles what to do with with the table data
-func getFileNamesAndURLs(url string, callback func(*html.Node)) error {
-	fmt.Printf("Fetching page: %s\n", url)
+func getFileNamesAndURLs(ctx context.Context, url string, callback func(*html.Node)) error {
+	logInfo.Printf("Fetching page: %s\n", url)
 	// Send a GET request to the URL
-	resp, err := http.Get(url)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	// Parse the HTML document
-	fmt.Println("Parsing...")
+	logInfo.Println("Parsing...")
 	doc, err := html.Parse(resp.Body)
 	if err != nil {
 		return fmt.Errorf("error parsing HTML: %v", err)

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"github.com/phortheman/ArchiveDownloader/cmd"
 	"os"
+	"os/signal"
+
+	"github.com/phortheman/ArchiveDownloader/cmd"
 )
 
 var url, destination string
@@ -30,10 +33,28 @@ func main() {
 		fmt.Fprintln(os.Stderr, "destination path is required")
 		os.Exit(2)
 	}
-	os.Exit(cmd.Execute(cmd.Options{
-		URL:               url,
-		Destination:       destination,
-		NumWorkers:        numWorkers,
-		ExpectedExtension: extension,
-	}))
+
+	// Create the main context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle interrupt
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		// TODO: Should include this?
+		// signal.Notify(c, os.Kill)
+		<-c
+		cancel()
+		// TODO: May need to do os.Exit(1) here?
+	}()
+
+	os.Exit(cmd.Execute(
+		ctx,
+		cmd.Options{
+			URL:               url,
+			Destination:       destination,
+			NumWorkers:        numWorkers,
+			ExpectedExtension: extension,
+		}))
 }

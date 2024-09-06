@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"log"
 	"os"
@@ -13,8 +14,12 @@ import (
 
 var elements []*Element
 
+var logInfo = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
+var logError = log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+
 type Element struct {
 	Name string
+	Size uint // TODO: Need to parse the expected file size for seeing if the file was partially downloaded
 	URL  string
 	Path string
 }
@@ -45,12 +50,9 @@ func fileExists(fileName, destination string) bool {
 }
 
 // Generate a list of files from the URL and download the files to the destination
-func Execute(ops Options) int {
+func Execute(ctx context.Context, ops Options) int {
 	ops.SetDefaults()
 	var err error
-
-	logInfo := log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
-	logError := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	// Create the destination absolute path
 	ops.Destination, err = filepath.Abs(ops.Destination)
@@ -97,7 +99,9 @@ func Execute(ops Options) int {
 		}
 	}
 	logInfo.Printf("Fetching page: %s\n", ops.URL)
-	err = getFileNamesAndURLs(ops.URL, callback)
+
+	// TODO: May need to add select wrapper for this one
+	err = getFileNamesAndURLs(ctx, ops.URL, callback)
 	if err != nil {
 		logInfo.Printf("error: %v\n", err)
 		return 1
@@ -107,25 +111,36 @@ func Execute(ops Options) int {
 	var wg sync.WaitGroup
 
 	// Define a worker task
-	worker := func(id int, jobs <-chan *Element) {
+	worker := func(ctx context.Context, id int, jobs <-chan *Element) {
 		defer wg.Done()
-		for e := range jobs {
-			// If we whitelist a specific extention skip any that don't have it
-			if ops.ExpectedExtension != "" && !strings.HasSuffix(e.Name, ops.ExpectedExtension) {
-				logInfo.Printf("Worker %d: File name doesn't have expected extension: %s\n", id, e.Name)
-				continue
-			}
+		for {
+			select {
+			case <-ctx.Done():
+				logInfo.Printf("Worker %d: Shutting down due to cancellation\n", id)
+				return
+			case e, ok := <-jobs:
+				if !ok {
+					// Channel is closed, worker can exit
+					return
+				}
+				// If we whitelist a specific extension skip any that don't have it
+				if ops.ExpectedExtension != "" && !strings.HasSuffix(e.Name, ops.ExpectedExtension) {
+					logInfo.Printf("Worker %d:	File name doesn't have expected extension: %s\n", id, e.Name)
+					continue
+				}
 
-			// If the file exists skip it
-			if fileExists(e.Name, ops.Destination) {
-				logError.Printf("Worker %d:	file already exists. skipping: %s", id, e.Name)
-				continue
-			}
-			logInfo.Printf("Worker %d: Downloading %s\n", id, e.Name)
-			err = downloadFile(e, ops.Destination)
-			if err != nil {
-				logError.Printf("Worker %d:	error: %v\n", id, err)
-				continue
+				// If the file exists, skip it
+				if fileExists(e.Name, ops.Destination) {
+					logInfo.Printf("Worker %d:	File already exists, skipping: %s\n", id, e.Name)
+					continue
+				}
+				log.Printf("Worker %d: Downloading %s\n", id, e.Name)
+				err := downloadFile(ctx, e, ops.Destination)
+				if err != nil {
+					logInfo.Printf("Worker %d: Error: %v\n", id, err)
+					continue
+				}
+				logInfo.Printf("Worker %d:	Finished downloading %s\n", id, e.Name)
 			}
 		}
 	}
@@ -136,14 +151,20 @@ func Execute(ops Options) int {
 	// Start the workers
 	for i := 1; i <= ops.NumWorkers; i++ {
 		wg.Add(1)
-		go worker(i, elementChan)
+		go worker(ctx, i, elementChan)
 	}
 
 	// Feed elements to workers
-	for _, e := range elements {
-		elementChan <- e
-	}
-	close(elementChan)
+	go func() {
+		for _, e := range elements {
+			select {
+			case <-ctx.Done():
+				return
+			case elementChan <- e:
+			}
+		}
+		close(elementChan)
+	}()
 
 	// Wait for all workers to finish
 	wg.Wait()

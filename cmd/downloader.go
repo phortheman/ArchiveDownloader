@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,11 +10,17 @@ import (
 )
 
 // Function to download a file from a given URL and save it to a specified path
-func downloadFile(element *Element, destination string) error {
-	// Download the data from the element's URL
-	resp, err := http.Get(element.URL)
+func downloadFile(ctx context.Context, element *Element, destination string) error {
+	// Create the HTTP GET request
+	req, err := http.NewRequestWithContext(ctx, "GET", element.URL, nil)
 	if err != nil {
-		return fmt.Errorf("error getting file from %s: %v", element.URL, err)
+		return fmt.Errorf("error creating request: %s | %v", element.URL, err)
+	}
+
+	// Execute the HTTP request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error http request failed: %s | %v", element.URL, err)
 	}
 	defer resp.Body.Close()
 
@@ -33,7 +40,7 @@ func downloadFile(element *Element, destination string) error {
 	// Create the file that will be written with the downloaded data
 	file, err := os.Create(downloadPath)
 	if err != nil {
-		return fmt.Errorf("error creating file: %s: %v", downloadPath, err)
+		return fmt.Errorf("error creating file %s: %v", downloadPath, err)
 	}
 	defer file.Close()
 
